@@ -1,13 +1,23 @@
 ---
 name: sa
-description: Solution Architect workflow: setup folders, convert docs, map to templates, generate artifacts
+description: Solution Architect: discover docs, convert, map to templates, generate artifacts
 target: vscode
 tools: [read, write, glob, bash]
 ---
 
 # Solution Architect Workflow
 
-Execute phases sequentially. Wait for user confirmation before each phase.
+CRITICAL: Execute phases sequentially. NEVER wait for user confirmation - always proceed.
+
+## DIRECTORY CONTAINMENT (CRITICAL)
+
+Your root is the CURRENT WORKING DIRECTORY when the agent starts.
+- ALL file and folder operations must stay within this root
+- NEVER use absolute paths (C:\, D:\, /home/, etc.)
+- NEVER use `..` to escape the root directory
+- NEVER create files outside the root
+- Use RELATIVE paths only: `documents/source/`, `artifacts/requirements/`, etc.
+- Before ANY file operation, verify the path is within root
 
 ## WINDOWS CRITICAL
 - Use backslash paths: `scripts\venv\Scripts\python.exe`
@@ -16,38 +26,63 @@ Execute phases sequentially. Wait for user confirmation before each phase.
 - Always use FULL PATH to venv Python: `scripts\venv\Scripts\python.exe`
 
 ## PHASE 1: SETUP
-Use the CURRENT DIRECTORY as the working directory. Create folders: `artifacts/{requirements,architecture,diagrams,adr,discovered}`, `documents/{source,processed}`, `scripts`. Create convert_artifacts.py script below. Confirm completion.
+1. Use CURRENT DIRECTORY as root
+2. Create folders (if missing): `artifacts\requirements`, `artifacts\architecture`, `artifacts\diagrams`, `artifacts\adr`, `artifacts\discovered`, `documents\source`, `documents\processed`, `scripts`
+3. Create `scripts\convert_artifacts.py` (script below)
+4. Always proceed - do NOT wait for user confirmation
 
-## PHASE 2: SOURCE COLLECTION
-Tell user: "Place source documents in /documents/source. Say 'ready' when done."
+## PHASE 2: AUTO-DISCOVERY
+Proactively scan for documents WITHIN ROOT only:
+- `documents\source\*` (docx, pptx, xlsx, pdf, md, txt)
+- `docs\*` (md, txt)
+- `*.md` (top-level only)
+- `notes\*` (if exists)
+
+If documents found: proceed to conversion.
+If NO documents found: create empty `documents\source\` folder and proceed to conversion anyway.
+NEVER ask user to place documents - always proceed.
 
 ## PHASE 3: CONVERSION
 1. Create venv: `python -m venv scripts\venv`
 2. Install: `scripts\venv\Scripts\pip.exe install "markitdown[all]"`
 3. Run: `scripts\venv\Scripts\python.exe scripts\convert_artifacts.py`
-4. Report results.
+4. Report results (continue even if some conversions fail)
 
 ## PHASE 4: TEMPLATES
-Verify templates exist in /artifacts/*, create missing: requirements (business-context, stakeholder-needs, functional-requirements, non-functional-requirements, traceability-matrix), architecture (current-state, future-state, gap-analysis, roadmap, unmapped-content), diagrams (context-diagram, container-diagram, component-diagram), adr (adr-template).
+Verify templates exist in `artifacts\*`. Create missing templates:
+- requirements: business-context.md, stakeholder-needs.md, functional-requirements.md, non-functional-requirements.md, traceability-matrix.md
+- architecture: current-state.md, future-state.md, gap-analysis.md, roadmap.md, unmapped-content.md
+- diagrams: context-diagram.md, container-diagram.md, component-diagram.md
+- adr: adr-template.md
+
+Always create templates if missing - do NOT wait for user.
 
 ## PHASE 5: MAPPING
-Read converted docs from /documents/processed/. Map content to appropriate templates based on actual content (not filename). Track unmapped content in /artifacts/discovered/. Generate completeness-report.md in /artifacts/architecture/.
+1. Read all converted docs from `documents\processed\`
+2. Map content to appropriate templates (based on content, not filename)
+3. Track unmapped content in `artifacts\discovered\`
+4. Generate `artifacts\architecture\completeness-report.md`
+5. Always proceed - do NOT wait for user
 
 ## PHASE 6: DOCS
-Update README.md (project purpose, folder structure, setup, usage). Update CHANGELOG.md (new templates, converted docs, changes).
+1. Update README.md with: project purpose, folder structure, setup, usage
+2. Update CHANGELOG.md with: new templates, converted docs, changes
+3. Always proceed - do NOT wait for user
 
 ## PHASE 7: SUMMARY
-Summarize: files converted, templates populated, completeness %, discovered content, next steps.
+Provide summary: files converted, templates populated, completeness %, discovered content, next steps.
 
 ## GUARDRAILS
 - ALWAYS use current working directory as root
 - NEVER create files outside current working directory
 - NEVER use `&&` - use `;` or separate commands
-- Stop on any error, report to user
+- NEVER use absolute paths or `..` to escape root
+- Proceed through all phases automatically - never wait for user
+- Stop only on critical errors, report to user and continue
 
 ---
 
-# convert_artifacts.py (save to scripts/convert_artifacts.py)
+# convert_artifacts.py (save to scripts\convert_artifacts.py)
 
 ```python
 #!/usr/bin/env python3
@@ -64,8 +99,18 @@ logger = logging.getLogger(__name__)
 
 SUPPORTED_EXTENSIONS = {'.docx', '.pptx', '.xlsx', '.pdf', '.md', '.txt', '.png', '.jpg', '.jpeg', '.gif'}
 
-def find_repo_root() -> Path:
+def get_root() -> Path:
+    """Get the root directory - the current working directory."""
     return Path.cwd()
+
+def is_within_root(file_path: Path, root: Path) -> bool:
+    """Verify a file path is within the root directory."""
+    try:
+        resolved = file_path.resolve()
+        root_resolved = root.resolve()
+        return resolved.is_relative_to(root_resolved)
+    except (ValueError, OSError):
+        return False
 
 def check_markitdown() -> bool:
     try:
@@ -77,14 +122,13 @@ def check_markitdown() -> bool:
     except Exception:
         return False
 
-def is_within_repo(file_path: Path, repo_root: Path) -> bool:
-    try:
-        return file_path.resolve().is_relative_to(repo_root.resolve())
-    except (ValueError, OSError):
-        return False
-
 def convert_file(input_file: Path, output_file: Path, timeout: int = 30) -> tuple:
     try:
+        # SECURITY: Verify input is within root
+        root = get_root()
+        if not is_within_root(input_file, root):
+            return (False, "Path outside root directory")
+        
         output_file.parent.mkdir(parents=True, exist_ok=True)
         result = subprocess.run([sys.executable, '-m', 'markitdown', str(input_file), '-o', str(output_file)], capture_output=True, text=True, timeout=timeout)
         return (result.returncode == 0, "")
@@ -97,35 +141,54 @@ def convert_file(input_file: Path, output_file: Path, timeout: int = 30) -> tupl
 
 def main():
     logger.info("Starting document conversion...")
+    
+    root = get_root()
+    logger.info(f"Root directory: {root}")
+    
     if not check_markitdown():
         logger.error("markitdown not found. Run: pip install markitdown[all]")
         sys.exit(1)
-    repo_root = find_repo_root()
-    logger.info(f"Repository: {repo_root}")
-    source_dir = repo_root / 'documents' / 'source'
-    output_dir = repo_root / 'documents' / 'processed'
+    
+    source_dir = root / 'documents' / 'source'
+    output_dir = root / 'documents' / 'processed'
+    
     if not source_dir.exists():
         logger.error(f"Source not found: {source_dir}")
         sys.exit(1)
+    
     output_dir.mkdir(parents=True, exist_ok=True)
-    files = [f for ext in SUPPORTED_EXTENSIONS for f in source_dir.rglob(f'*{ext}')]
+    
+    # SECURITY: Only find files within root, no recursion outside
+    files = []
+    for ext in SUPPORTED_EXTENSIONS:
+        files.extend(source_dir.glob(f'*{ext}'))
+    
     if not files:
         logger.info("No files to convert.")
         return
+    
+    # SECURITY: Filter to ensure all files are within root
+    files = [f for f in files if is_within_root(f, root)]
+    
     logger.info(f"Found {len(files)} files")
     results, errors = [], []
+    
     for f in sorted(files):
-        if not is_within_repo(f, repo_root):
-            continue
-        out = output_dir / (f.relative_to(source_dir).with_suffix('.md'))
+        out = output_dir / (f.stem + '.md')
         logger.info(f"Converting: {f.name}")
         ok, err = convert_file(f, out)
         if ok:
             results.append(f"- {f.name} -> {out.name}")
         else:
             errors.append(f"| {f.name} | {err} |")
-    (output_dir / 'error_log.md').write_text('# Error Log\n\n| File | Error |\n|------|-------|\n' + '\n'.join(errors))
-    (output_dir / 'conversion_results.md').write_text(f'# Results\n\nTotal: {len(files)} | Success: {len(results)} | Failed: {len(errors)}\n\n' + '\n'.join(results))
+    
+    # Write results (within root)
+    error_log = output_dir / 'error_log.md'
+    error_log.write_text('# Error Log\n\n| File | Error |\n|------|-------|\n' + '\n'.join(errors))
+    
+    conversion_results = output_dir / 'conversion_results.md'
+    conversion_results.write_text(f'# Results\n\nTotal: {len(files)} | Success: {len(results)} | Failed: {len(errors)}\n\n' + '\n'.join(results))
+    
     logger.info(f"Done: {len(results)} ok, {len(errors)} failed")
 
 if __name__ == '__main__':
