@@ -5,7 +5,37 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Planned
+- `srd.agent.md` — full agent implementation (specification complete, implementation pending)
 - **ER agent — Requirements Discrepancy Report:** Compare enhancement request requirements against SA agent artifacts and templates to identify gaps, conflicts, and misalignments
+
+---
+
+## [0.6.0] - 2026-03-09
+
+### Added
+- New `srd.agent.md` specification — Solution Requirements Designer agent
+  - End-to-end requirements-to-backlog pipeline for organizing raw business requirements through to a Jira-ready implementation backlog
+  - Multi-session architecture: file-based state detection determines which stage to run on each invocation — no user coordination required
+  - **Stage A (Phases 1–5):** Document conversion via markitdown, prioritized requirements clarification loop, completeness scoring, As-Is/To-Be process models with Mermaid diagrams, system responsibility matrix
+  - **Stage B (Phase 6):** Generates `tech-assessment.md` — a briefing + structured assessment form (feasibility table, risk/impact matrix, challenges checklist, LOE estimate, recommended approach) pre-populated with requirement IDs for the technical team to complete
+  - **Stage C (Phases 7–13):** Ingests tech team feedback (edited markdown or chat input), functional solution design, integrations and data flows, stakeholder validation package, final document set, Jira-ready backlog
+  - Prioritized clarification loop in Phase 2: contradictions first, then critical ambiguities, then gaps. Generates `clarification-questions.md` — a stakeholder-ready document the user can forward directly. User can `skip` individual questions or `defer-all` to exit the loop
+  - Completeness scoring in Phase 3 across 7 categories (Functional, NFR, Data, Integration, Business Rules, Regulatory, UX). Always proceeds regardless of score; generates `completeness-report.md` with warning banner if < 80%
+  - Completeness propagation: score and gap list carry forward into tech assessment, validation package, story risk flags, and SUMMARY — gaps remain visible throughout the entire workflow
+  - Jira story files include `completeness_risk` and `technical_risk` frontmatter flags; stories linked to incomplete or risky requirements get inline warning notes
+  - Smart gate model: 3 targeted smart gates (after completeness assessment, after tech feedback ingest, after stakeholder validation) + 2 session-ending stage boundaries. No auto/manual toggle needed
+  - Stage A re-entry: invoking the agent again while in Stage A re-runs the clarification loop with new input and re-scores completeness before proceeding to Stage B
+  - Self-contained: handles its own document conversion, reuses SA agent venv if present, no dependency on `sa` or `er` agents
+  - All output under `analysis\SRD-YYYYMMDD-HHMM\`; maintains `analysis\README.md` status dashboard
+
+### Changed
+- `README.md` updated to document all three agents (`srd`, `sa`, `er`)
+  - Added full `srd` agent section with stage/phase descriptions, outputs table, and gate model
+  - Added "When to Use Which Agent" decision table
+  - Updated Decision Gates section to cover both the `sa`/`er` toggle model and `srd` smart gate model
+  - Updated Copy Agents section to include `srd` curl command
+  - Updated folder structure diagram to include `analysis\` tree
+  - Removed Roadmap section (SRD agent supersedes the planned requirements discrepancy report)
 
 ---
 
